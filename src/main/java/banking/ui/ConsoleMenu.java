@@ -35,6 +35,7 @@ public class ConsoleMenu {
                 case "6"  -> viewRecentLogins();
                 case "7"  -> undoLastTxn();
                 case "8"  -> viewCollectionSummary();
+                case "9"  -> reportsMenu();
                 case "0"  -> { System.out.println("Goodbye!"); running = false; }
                 default   -> System.out.println("  Invalid option, try again.");
             }
@@ -46,7 +47,7 @@ public class ConsoleMenu {
 
     private void printMainMenu() {
         System.out.println("""
-                
+
                 ╔══════════════════════════════╗
                 ║       MAIN MENU              ║
                 ╠══════════════════════════════╣
@@ -58,6 +59,7 @@ public class ConsoleMenu {
                 ║  6. Recent Logins Cache      ║
                 ║  7. Undo Last Transaction    ║
                 ║  8. Collection Summary       ║
+                ║  9. Reports (Stream API)     ║
                 ║  0. Exit                     ║
                 ╚══════════════════════════════╝""");
     }
@@ -246,7 +248,7 @@ public class ConsoleMenu {
     private void viewCollectionSummary() {
         InMemoryStore s = service.getStore();
         System.out.println("""
-                
+
                 ┌─────────────────────────────────────────────────────────────────────┐
                 │                   COLLECTION SUMMARY                               │
                 ├──────────────────┬──────────────────┬───────────────┬──────────────┤
@@ -266,6 +268,87 @@ public class ConsoleMenu {
         System.out.printf("  Audit entries : %d%n", s.getAuditTrail().size());
         System.out.printf("  Pending reqs  : %d%n", s.pendingRequestCount());
         System.out.printf("  Undo stack    : %d%n", s.undoStackSize());
+    }
+
+    // ── Reports (Stream API) ─────────────────────────────────────────────
+
+    private void reportsMenu() {
+        System.out.println("\n--- Reports (powered by Java Stream API) ---");
+        System.out.println("""
+                  a. Total bank balance              (stream + mapToDouble + sum)
+                  b. Accounts sorted by balance       (stream + sorted)
+                  c. Accounts filtered by type        (stream + filter)
+                  d. Account count grouped by type    (stream + groupingBy + counting)
+                  e. All transactions (flattened)     (stream + flatMap)
+                  f. Largest transaction for account  (stream + max)
+                  g. Credits only for an account      (stream + filter)
+                  h. Top N customers by balance       (stream + groupingBy + sorted + limit)
+                  i. Search audit trail by keyword     (stream + filter)
+                  j. Full bank summary report          (multiple streams combined)""");
+        String ch = prompt("Choice").trim().toLowerCase();
+        InMemoryStore s = service.getStore();
+
+        switch (ch) {
+            case "a" -> System.out.printf("  Total bank balance: %.2f%n", s.getTotalBankBalance());
+
+            case "b" -> s.getAccountsSortedByBalanceDesc()
+                    .forEach(a -> System.out.println("  " + a));
+
+            case "c" -> {
+                System.out.println("  Types: SAVINGS / CURRENT / LOAN");
+                String typeStr = prompt("Account type").toUpperCase();
+                try {
+                    Account.AccountType type = Account.AccountType.valueOf(typeStr);
+                    List<Account> result = s.getAccountsByType(type);
+                    if (result.isEmpty()) System.out.println("  No accounts of that type.");
+                    else result.forEach(a -> System.out.println("  " + a));
+                } catch (Exception e) { System.out.println("  Invalid type."); }
+            }
+
+            case "d" -> s.countAccountsByType()
+                    .forEach((type, count) -> System.out.printf("  %-10s : %d%n", type, count));
+
+            case "e" -> {
+                List<Transaction> all = s.getAllTransactions();
+                System.out.println("  Total transactions across bank: " + all.size());
+                all.forEach(t -> System.out.println("  " + t));
+            }
+
+            case "f" -> {
+                String accId = prompt("Account ID");
+                s.getLargestTransaction(accId).ifPresentOrElse(
+                        t -> System.out.println("  Largest: " + t),
+                        ()  -> System.out.println("  No transactions found."));
+            }
+
+            case "g" -> {
+                String accId = prompt("Account ID");
+                List<Transaction> credits = s.getCreditsOnly(accId);
+                if (credits.isEmpty()) System.out.println("  No credit transactions.");
+                else credits.forEach(t -> System.out.println("  " + t));
+            }
+
+            case "h" -> {
+                int n = (int) doublePrompt("Top how many customers?");
+                List<Map.Entry<String, Double>> top = s.getTopNCustomersByBalance(n);
+                int rank = 1;
+                for (Map.Entry<String, Double> e : top) {
+                    System.out.printf("  #%d  %-12s  total balance = %.2f%n",
+                            rank++, e.getKey(), e.getValue());
+                }
+            }
+
+            case "i" -> {
+                String keyword = prompt("Keyword to search");
+                List<AuditLog> matches = s.searchAuditTrail(keyword);
+                if (matches.isEmpty()) System.out.println("  No matches.");
+                else matches.forEach(l -> System.out.println("  " + l));
+            }
+
+            case "j" -> System.out.println("  " + s.buildBankSummaryReport());
+
+            default -> System.out.println("  Unknown option.");
+        }
     }
 
     // ── Utilities ─────────────────────────────────────────────────────────
